@@ -3,7 +3,6 @@ import fetch from "node-fetch";
 import dotEnv from "dotenv";
 import { pick } from "ramda";
 
-import { track, init, register } from "./analytics";
 import logger from "./logger";
 import { ApiResponse } from "./types";
 import { normalizeKey, toEpochTimestamp, ensureArray } from "./utils";
@@ -39,12 +38,6 @@ function encodeObjectToQueryString(qs?: ApiResponse.AnyQueryOptions) {
     .join("&");
 }
 
-register({
-  "api version": apiVersion,
-  "client user-agent": clientUserAgent,
-  "node environment": process.env.NODE_ENV,
-});
-
 class PodcastIndexClient {
   private apiUrl = `https://api.podcastindex.org/api/1.0`;
 
@@ -59,8 +52,6 @@ class PodcastIndexClient {
   constructor({
     key = process.env.API_KEY,
     secret = process.env.API_SECRET,
-    enableAnalytics,
-    disableAnalytics,
   }: {
     key?: string;
     secret?: string;
@@ -72,7 +63,6 @@ class PodcastIndexClient {
     }
     this.key = key;
     this.secret = secret;
-    init(key, { enableAnalytics: enableAnalytics === false ? false : !disableAnalytics });
   }
 
   private generateHeaders() {
@@ -107,14 +97,6 @@ class PodcastIndexClient {
 
     logger.log(url);
     return fetch(url, options).then((res) => {
-      track("API Call", {
-        endpoint,
-        url,
-        duration: Date.now() - start,
-        "response status": res.status,
-        "response text": res.statusText,
-        ...(queryString ? { "full query": queryString, ...qs } : undefined),
-      });
       if (res.status >= 200 && res.status < 300) {
         return res.json();
       }
@@ -133,16 +115,7 @@ class PodcastIndexClient {
    * @param qs
    */
   public async raw<T>(endpoint: string, qs?: ApiResponse.AnyQueryOptions): Promise<T> {
-    const result = await this.fetch<T>(endpoint, qs);
-
-    track("Raw", {
-      endpoint,
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore
-      ...("status" in result ? { status: result.status } : undefined),
-    });
-
-    return result;
+    return this.fetch<T>(endpoint, qs);
   }
 
   // #region Search
@@ -152,13 +125,7 @@ class PodcastIndexClient {
    * @param query search query
    */
   public async categories(): Promise<ApiResponse.Categories> {
-    const result = await this.fetch<ApiResponse.Categories>("/categories/list");
-    track("Categories Response", {
-      count: result.count,
-      length: result.feeds.length,
-      status: result.status,
-    });
-    return result;
+    return this.fetch<ApiResponse.Categories>("/categories/list");
   }
   // #endregion
 
@@ -177,24 +144,12 @@ class PodcastIndexClient {
       fulltext?: boolean;
     } = {}
   ): Promise<ApiResponse.Search> {
-    const result = await this.fetch<ApiResponse.Search>("/search/byterm", {
+    return this.fetch<ApiResponse.Search>("/search/byterm", {
       q: query,
       max: options.max ?? 25,
       clean: Boolean(options.clean),
       fulltext: Boolean(options.fulltext),
     });
-
-    track("Search", {
-      query,
-      clean: Boolean(options.clean),
-      fulltext: options.fulltext,
-      max: options.max,
-      count: result.count,
-      length: result.feeds.length,
-      status: result.status,
-    });
-
-    return result;
   }
 
   /**
@@ -208,20 +163,10 @@ class PodcastIndexClient {
       fulltext?: boolean;
     } = {}
   ): Promise<ApiResponse.SearchPerson> {
-    const result = await this.fetch<ApiResponse.SearchPerson>("/search/byperson", {
+    return this.fetch<ApiResponse.SearchPerson>("/search/byperson", {
       q: query,
       fulltext: Boolean(options.fulltext),
     });
-
-    track("Search Person", {
-      query,
-      fulltext: options.fulltext,
-      count: result.count,
-      length: result.items.length,
-      status: result.status,
-    });
-
-    return result;
   }
   // #endregion
 
@@ -240,21 +185,10 @@ class PodcastIndexClient {
       fulltext?: boolean;
     } = {}
   ): Promise<ApiResponse.RecentEpisodes> {
-    const result = await this.fetch<ApiResponse.RecentEpisodes>("/recent/episodes", {
+    return this.fetch<ApiResponse.RecentEpisodes>("/recent/episodes", {
       ...options,
       max: options.max ?? 10,
     });
-
-    track("Recent Episodes", {
-      max: options.max,
-      excludeString: options.excludeString,
-      before: options.before,
-      count: result.count,
-      length: result.items.length,
-      status: result.status,
-    });
-
-    return result;
   }
 
   /**
@@ -302,16 +236,6 @@ class PodcastIndexClient {
 
     const result = await this.fetch<ApiResponse.RecentFeeds>("/recent/feeds", apiOptions);
 
-    track("Recent Feeds", {
-      max: options.max,
-      lang: ensureArray(options.lang),
-      category: ensureArray(options.category),
-      notCategory: ensureArray(options.notCategory),
-      count: result.count,
-      length: result.feeds.length,
-      status: result.status,
-    });
-
     return {
       ...result,
       feeds: result.feeds
@@ -336,32 +260,16 @@ class PodcastIndexClient {
       max?: number;
     } = {}
   ): Promise<ApiResponse.RecentNewFeeds> {
-    const result = await this.fetch<ApiResponse.RecentNewFeeds>("/recent/newfeeds", {
+    return this.fetch<ApiResponse.RecentNewFeeds>("/recent/newfeeds", {
       max: options.max ?? 10,
     });
-
-    track("Recent New Feeds", {
-      max: options.max,
-      count: result.count,
-      length: result.feeds.length,
-      status: result.status,
-    });
-
-    return result;
   }
 
   /**
    * The most recent 60 soundbites that the index has discovered
    */
   public async recentSoundbites(): Promise<ApiResponse.RecentSoundbites> {
-    const result = await this.fetch<ApiResponse.RecentSoundbites>("/recent/soundbites");
-    track("Recent Soundbites", {
-      count: result.count,
-      length: result.items.length,
-      status: result.status,
-    });
-
-    return result;
+    return this.fetch<ApiResponse.RecentSoundbites>("/recent/soundbites");
   }
   // #endregion
 
@@ -373,12 +281,6 @@ class PodcastIndexClient {
       result.feed.categories = {};
     }
 
-    track("Feed by URL", {
-      url,
-      categoryCount: Object.keys(result.feed.categories).length,
-      status: result.status,
-    });
-
     return result;
   }
 
@@ -389,12 +291,6 @@ class PodcastIndexClient {
       result.feed.categories = {};
     }
 
-    track("Feed by ID", {
-      id,
-      categoryCount: Object.keys(result.feed.categories).length,
-      status: result.status,
-    });
-
     return result;
   }
 
@@ -404,12 +300,6 @@ class PodcastIndexClient {
     if (!result.feed.categories) {
       result.feed.categories = {};
     }
-
-    track("Feed by iTunes ID", {
-      id,
-      categoryCount: Object.keys(result.feed.categories).length,
-      status: result.status,
-    });
 
     return result;
   }
@@ -459,16 +349,6 @@ class PodcastIndexClient {
 
     const result = await this.fetch<ApiResponse.Trending>("/podcasts/trending", apiOptions);
 
-    track("Trending Feeds", {
-      max: options.max,
-      lang: ensureArray(options.lang),
-      category: ensureArray(options.category),
-      notCategory: ensureArray(options.notCategory),
-      count: result.count,
-      length: result.feeds.length,
-      status: result.status,
-    });
-
     return {
       ...result,
       feeds: result.feeds
@@ -497,23 +377,11 @@ class PodcastIndexClient {
     } = {}
   ): Promise<ApiResponse.EpisodesByFeedUrl> {
     const { since, ...rest } = options;
-    const result = await this.fetch<ApiResponse.EpisodesByFeedUrl>("/episodes/byfeedurl", {
+    return await this.fetch<ApiResponse.EpisodesByFeedUrl>("/episodes/byfeedurl", {
       ...rest,
       since: toEpochTimestamp(since),
       url,
     });
-
-    track("Episodes by Feed URL", {
-      url,
-      fulltext: options.fulltext,
-      max: options.max,
-      since: options.since,
-      count: result.count,
-      length: result.items.length,
-      status: result.status,
-    });
-
-    return result;
   }
 
   /**
@@ -532,23 +400,11 @@ class PodcastIndexClient {
   ): Promise<ApiResponse.EpisodesByFeedId> {
     const { since, ...rest } = options;
     const parsedId = Array.isArray(id) ? id.join(",") : id;
-    const result = await this.fetch<ApiResponse.EpisodesByFeedId>("/episodes/byfeedid", {
+    return this.fetch<ApiResponse.EpisodesByFeedId>("/episodes/byfeedid", {
       ...rest,
       since: toEpochTimestamp(since),
       id: parsedId,
     });
-
-    track("Episodes by Feed ID", {
-      id,
-      fulltext: options.fulltext,
-      max: options.max,
-      since: options.since,
-      count: result.count,
-      length: result.items.length,
-      status: result.status,
-    });
-
-    return result;
   }
 
   /**
@@ -566,23 +422,11 @@ class PodcastIndexClient {
     } = {}
   ): Promise<ApiResponse.EpisodesByItunesId> {
     const { since, ...rest } = options;
-    const result = await this.fetch<ApiResponse.EpisodesByItunesId>("/episodes/byitunesid", {
+    return this.fetch<ApiResponse.EpisodesByItunesId>("/episodes/byitunesid", {
       ...rest,
       since: toEpochTimestamp(since),
       id,
     });
-
-    track("Episodes by iTunes ID", {
-      id,
-      fulltext: options.fulltext,
-      max: options.max,
-      since: options.since,
-      count: result.count,
-      length: result.items.length,
-      status: result.status,
-    });
-
-    return result;
   }
 
   /**
@@ -614,19 +458,7 @@ class PodcastIndexClient {
       ? options.notcat.join(",")
       : options.notcat;
 
-    const result = await this.fetch<ApiResponse.RandomEpisodes>("/episodes/random", parsedOptions);
-
-    track("Random Episodes", {
-      max: options.max,
-      lang: ensureArray(options.lang),
-      category: ensureArray(options.cat),
-      notCategory: ensureArray(options.notcat),
-      count: result.count,
-      length: result.episodes.length,
-      status: result.status,
-    });
-
-    return result;
+    return this.fetch<ApiResponse.RandomEpisodes>("/episodes/random", parsedOptions);
   }
 
   /** Get all the metadata for a single episode by passing its id. */
@@ -634,27 +466,12 @@ class PodcastIndexClient {
     id: number,
     options: { fulltext?: boolean } = {}
   ): Promise<ApiResponse.EpisodeById> {
-    const result = await this.fetch<ApiResponse.EpisodeById>("/episodes/byid", { id, ...options });
-
-    track("Episode by ID", {
-      id,
-      fulltext: options.fulltext,
-      status: result.status,
-    });
-
-    return result;
+    return this.fetch<ApiResponse.EpisodeById>("/episodes/byid", { id, ...options });
   }
   // #endregion
 
   public async stats(): Promise<ApiResponse.Stats> {
-    const result = await this.fetch<ApiResponse.Stats>("/stats/current");
-
-    track("Stats", {
-      ...result.stats,
-      status: result.status,
-    });
-
-    return result;
+    return this.fetch<ApiResponse.Stats>("/stats/current");
   }
 }
 
